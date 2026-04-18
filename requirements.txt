@@ -1,0 +1,31 @@
+# Core LangChain
+langchain>=0.3
+langchain-community>=0.3
+langchain-text-splitters>=0.3
+
+# LLM providers
+langchain-google-genai
+langchain-groq
+langchain-ollama
+sentence-transformers
+
+# Embeddings / Vector store
+chromadb>=0.5
+langchain-chroma
+
+# Document loaders
+PyMuPDF
+beautifulsoup4
+requests
+youtube-transcript-api
+pytube
+torchvision
+
+# Tokenizer (required by LangChain internals)
+tiktoken
+
+# UI
+streamlit>=1.29
+
+# Environment variables
+python-dotenv
