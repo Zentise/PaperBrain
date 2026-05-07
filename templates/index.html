@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PaperBrain — Chat with your documents</title>
+  <meta name="description" content="AI-powered document research. Upload PDFs, paste URLs, ask questions grounded in your sources.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236d5ef5'/><text x='16' y='22' text-anchor='middle' fill='white' font-family='system-ui' font-size='17' font-weight='700'>P</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div id="shell">
+
+  <!-- ══ LEFT: Sources Panel ══════════════════════════════════════════════ -->
+  <aside id="sources-panel" class="sources-panel" aria-label="Sources">
+    <div class="panel-top">
+      <span class="panel-label">Sources</span>
+      <button id="add-btn" class="add-btn" title="Add source" aria-label="Add source">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="source-list" class="source-list"></div>
+
+    <div id="sources-empty" class="sources-empty">
+      <div class="empty-ring">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect x="6" y="8" width="12" height="1.8" rx=".9" fill="currentColor" opacity=".4"/>
+          <rect x="6" y="12" width="16" height="1.8" rx=".9" fill="currentColor" opacity=".3"/>
+          <rect x="6" y="16" width="10" height="1.8" rx=".9" fill="currentColor" opacity=".2"/>
+        </svg>
+      </div>
+      <p>No sources yet</p>
+      <span>PDFs · articles · YouTube</span>
+    </div>
+
+    <div class="panel-footer">
+      <span id="panel-stats" class="panel-stats"></span>
+      <button id="reload-btn" class="reload-btn" title="Reload knowledge base" aria-label="Reload">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M11.5 2A6 6 0 1 0 12 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M9 2h2.5V4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Reload
+      </button>
+    </div>
+  </aside>
+
+  <!-- ══ CENTER: Chat ══════════════════════════════════════════════════════ -->
+  <main class="chat-main" id="chat-main">
+
+    <header class="topbar">
+      <div class="topbar-start">
+        <button class="icon-btn panel-toggle" id="panel-toggle" aria-label="Toggle sources panel">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect y="2.5" width="16" height="1.5" rx=".75" fill="currentColor"/>
+            <rect y="7.25" width="16" height="1.5" rx=".75" fill="currentColor"/>
+            <rect y="12" width="16" height="1.5" rx=".75" fill="currentColor"/>
+          </svg>
+        </button>
+        <a class="brand" href="/" aria-label="PaperBrain home">
+          <span class="brand-mark" aria-hidden="true">P</span>
+          <span class="brand-name">PaperBrain</span>
+        </a>
+      </div>
+      <div class="topbar-end">
+        <div class="model-toggle" id="model-toggle" role="group" aria-label="Choose model">
+          <button class="model-btn active" data-provider="gemini">Gemini</button>
+          <button class="model-btn" data-provider="groq">Llama 3.3</button>
+        </div>
+        <div class="status-pill" id="status-pill">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-label">Loading…</span>
+        </div>
+        <button class="icon-btn" id="clear-btn" title="Clear conversation" aria-label="Clear conversation">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M2 4h11M5.5 4V3a1 1 0 011-1h2a1 1 0 011 1v1M6 7v5M9 7v5M3 4l.9 9a1 1 0 001 .9h5.2a1 1 0 001-.9L12 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div id="messages" class="messages" role="log" aria-live="polite" aria-label="Conversation">
+
+      <!-- Welcome state (shown when no messages) -->
+      <div class="welcome" id="welcome">
+        <div class="welcome-glyph" aria-hidden="true">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <rect width="56" height="56" rx="16" fill="#6d5ef5" fill-opacity=".12"/>
+            <rect x="13" y="16" width="16" height="3" rx="1.5" fill="#6d5ef5" opacity=".9"/>
+            <rect x="13" y="22" width="30" height="3" rx="1.5" fill="#6d5ef5" opacity=".6"/>
+            <rect x="13" y="28" width="24" height="3" rx="1.5" fill="#6d5ef5" opacity=".4"/>
+            <rect x="13" y="34" width="18" height="3" rx="1.5" fill="#6d5ef5" opacity=".25"/>
+            <circle cx="42" cy="38" r="10" fill="#0dcfe0" fill-opacity=".1"/>
+            <path d="M38 38l3 3 5-5" stroke="#0dcfe0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h1>Your research, indexed.</h1>
+        <p>Add PDFs, articles, or YouTube transcripts — then ask questions with answers grounded in your own sources, not the open web.</p>
+        <button class="btn-cta" id="welcome-cta">Add your first source</button>
+        <div class="welcome-features" aria-hidden="true">
+          <span>PDF ·</span>
+          <span>Web article ·</span>
+          <span>YouTube transcript</span>
+        </div>
+      </div>
+
+    </div><!-- /messages -->
+
+    <div class="composer-wrap">
+      <div class="composer" id="composer">
+        <textarea
+          id="chat-input"
+          class="chat-input"
+          placeholder="Ask anything about your sources…"
+          rows="1"
+          disabled
+          aria-label="Ask a question"
+          aria-multiline="true"
+        ></textarea>
+        <button id="send-btn" class="send-btn" disabled aria-label="Send message">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M13.5 7.5L1.5 1.5l2.25 6-2.25 6 12-6z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+      <div class="composer-foot">
+        <span id="composer-hint" class="composer-hint">Add sources to begin</span>
+        <span class="composer-keys" aria-hidden="true">⏎ send &nbsp;·&nbsp; ⇧⏎ newline</span>
+      </div>
+    </div>
+
+  </main><!-- /chat-main -->
+
+  <!-- ══ RIGHT: Context Panel ════════════════════════════════════════════ -->
+  <aside class="context-panel" id="context-panel" aria-label="Response context">
+    <div class="panel-top">
+      <span class="panel-label">Context</span>
+    </div>
+    <div id="context-body" class="context-body">
+      <div class="context-idle">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <circle cx="16" cy="16" r="12" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 3" opacity=".3"/>
+          <circle cx="16" cy="16" r="4" fill="currentColor" opacity=".15"/>
+        </svg>
+        <span>Cited sources and confidence appear here after each answer</span>
+      </div>
+    </div>
+  </aside>
+
+</div><!-- /shell -->
+
+
+<!-- ══ Add Source Drawer ═════════════════════════════════════════════════ -->
+<div id="drawer-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
+
+<div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Add source">
+  <div class="drawer-header">
+    <h2 class="drawer-title">Add Source</h2>
+    <button class="icon-btn" id="drawer-close" aria-label="Close">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M1 1l11 11M12 1L1 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="drawer-tabs" role="tablist">
+    <button class="dtab active" data-tab="pdf" role="tab" aria-selected="true" id="tab-pdf-btn">PDF Files</button>
+    <button class="dtab" data-tab="url" role="tab" aria-selected="false" id="tab-url-btn">Web / YouTube</button>
+  </div>
+
+  <div id="drawer-body" class="drawer-body">
+
+    <!-- PDF panel -->
+    <div class="dtab-panel" id="panel-pdf" data-panel="pdf">
+      <label class="drop-zone" id="drop-zone" for="file-input" tabindex="0"
+             role="button" aria-label="Drop PDF files or click to browse">
+        <input type="file" id="file-input" accept=".pdf" multiple hidden>
+        <div class="drop-icon" aria-hidden="true">
+          <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+            <path d="M15 22V8M9 14l6-6 6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M5 25h20" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <p class="drop-title">Drop PDF files here</p>
+        <span class="drop-sub">or click to browse · up to 50 MB each</span>
+        <div id="file-preview" class="file-preview"></div>
+      </label>
+      <button class="btn-primary" id="upload-btn" disabled>Ingest PDFs</button>
+    </div>
+
+    <!-- URL panel -->
+    <div class="dtab-panel hidden" id="panel-url" data-panel="url">
+      <div class="field">
+        <label class="field-label" for="url-input">URL or YouTube link</label>
+        <input id="url-input" class="field-input" type="url"
+               placeholder="https://example.com/paper  or  https://youtu.be/…"
+               autocomplete="off" spellcheck="false">
+        <span class="field-sub">Supports any public web page and YouTube videos with captions</span>
+      </div>
+      <button class="btn-primary" id="ingest-url-btn">Ingest Source</button>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ══ Toasts ════════════════════════════════════════════════════════════ -->
+<div id="toasts" class="toasts" aria-live="assertive" aria-atomic="true"></div>
+
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

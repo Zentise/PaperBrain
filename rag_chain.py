@@ -16,17 +16,16 @@ from langchain_groq import ChatGroq
 from langchain_ollama import OllamaEmbeddings
 
 load_dotenv()
+_gemini_key = os.getenv("GEMINI")
+if _gemini_key:
+    os.environ["GOOGLE_API_KEY"] = _gemini_key
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
 
 _SYSTEM_PROMPT = (
-    "You are a helpful document assistant. "
-    "Answer the question ONLY using the provided context below. "
-    "If the context does not contain enough information, say "
-    "\"I don't have enough information to answer that.\"\n\n"
-    "Always cite the source of your answer at the end. "
-    "Mention the file name and page number for PDFs, "
-    "the video title for YouTube, or the URL for web pages.\n\n"
+    "You are a document assistant. Answer using ONLY the context below. "
+    "If the context lacks the answer, say \"I don't have enough information.\""
+    " Cite source (file+page for PDFs, URL/title otherwise) at the end.\n\n"
     "Context:\n{context}"
 )
 
@@ -65,7 +64,7 @@ class RAGChain:
         context = "\n\n".join(doc.page_content for doc in docs)
 
         history_messages = []
-        for human, ai in self.chat_history:
+        for human, ai in self.chat_history[-3:]:  # keep last 3 turns to save tokens
             history_messages.append(HumanMessage(content=human))
             history_messages.append(AIMessage(content=ai))
 
@@ -97,7 +96,8 @@ def get_embeddings():
     if provider == "ollama":
         model = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
         return OllamaEmbeddings(model=model)
-    return GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    emb = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+    return emb
 
 
 def load_vectorstore():
@@ -112,14 +112,14 @@ def load_vectorstore():
 def get_llm(provider="gemini"):
     if provider == "groq":
         return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
-    return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", temperature=0.2, max_output_tokens=1024)
 
 
 def build_chain(provider="gemini"):
     db = load_vectorstore()
     retriever = db.as_retriever(
         search_type="similarity_score_threshold",
-        search_kwargs={"k": 4, "score_threshold": 0.50},
+        search_kwargs={"k": 3, "score_threshold": 0.50},
     )
     chain = RAGChain(llm=get_llm(provider), retriever=retriever)
     return chain, db

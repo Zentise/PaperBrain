@@ -19,6 +19,9 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
 
 load_dotenv()
+_gemini_key = os.getenv("GEMINI")
+if _gemini_key:
+    os.environ["GOOGLE_API_KEY"] = _gemini_key
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -85,7 +88,7 @@ def load_documents(source: str, source_type: str):
     return docs
 
 
-def chunk_documents(docs, chunk_size=1000, chunk_overlap=200):
+def chunk_documents(docs, chunk_size=800, chunk_overlap=80):
     """Split documents into chunks."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -106,14 +109,15 @@ def get_embeddings():
     if provider == "ollama":
         model = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
         return OllamaEmbeddings(model=model)
-    return GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    emb = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+    return emb
 
 
 def store_chunks(chunks):
     """Embed chunks and add to ChromaDB in batches to stay within rate limits."""
     embeddings = get_embeddings()
-    BATCH_SIZE = 20  # conservative: free tier allows 100 req/min
-    MAX_RETRIES = 8
+    BATCH_SIZE = 100  # paid tier allows higher throughput
+    MAX_RETRIES = 5
 
     if os.path.exists(CHROMA_DIR):
         print("📦 Appending to existing ChromaDB …")
@@ -143,10 +147,9 @@ def store_chunks(chunks):
         else:
             raise RuntimeError(f"Failed to embed batch {batch_num} after {MAX_RETRIES} retries")
 
-        # Pause between batches to let the per-minute window reset
+        # Small pause to avoid burst spikes on the paid tier
         if i + BATCH_SIZE < total:
-            print("   ⏳ Pausing 30s between batches …")
-            time.sleep(30)
+            time.sleep(1)
 
     print(f"✅ Stored {total} chunk(s) in ChromaDB at {CHROMA_DIR}")
     return db

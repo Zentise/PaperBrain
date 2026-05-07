@@ -1,205 +1,233 @@
 """
-app.py — Streamlit UI for AskMyDocs.
+app.py — PaperBrain Flask server
 
-Upload PDFs, paste URLs or YouTube links, and chat with your documents.
+Serves the dashboard at / and exposes JSON endpoints for the SPA.
 """
 
 import os
 import tempfile
+from threading import Lock
+from uuid import uuid4
 
-import streamlit as st
 from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request, session
+from werkzeug.utils import secure_filename
 
 from ingest import ingest
-from rag_chain import ask, build_chain, load_vectorstore
+from rag_chain import ask, build_chain
 
 load_dotenv()
+if (k := os.getenv("GEMINI")):
+    os.environ["GOOGLE_API_KEY"] = k
 
-CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
+BASE   = os.path.dirname(__file__)
+DB_DIR = os.path.join(BASE, "chroma_db")
 
-# ── Page config ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="AskMyDocs", page_icon="📚", layout="wide")
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "paperbrain-dev-change-me")
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
-# ── Session state defaults ───────────────────────────────────────────────────
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "chain" not in st.session_state:
-    st.session_state.chain = None
-if "db" not in st.session_state:
-    st.session_state.db = None
-if "provider" not in st.session_state:
-    st.session_state.provider = "gemini"
-if "ingested_files" not in st.session_state:
-    st.session_state.ingested_files = set()
-if "ingested_urls" not in st.session_state:
-    st.session_state.ingested_urls = set()
+PROVIDERS = {
+    "gemini": "Gemini 2.5 Flash",
+    "groq":   "Llama 3.3 70B",
+}
 
-# ── Auto-load chain on startup if chroma_db exists ──────────────────────────
-if st.session_state.chain is None and os.path.exists(CHROMA_DIR):
-    try:
-        chain, db = build_chain(st.session_state.provider)
-        st.session_state.chain = chain
-        st.session_state.db = db
-    except Exception:
-        pass
+_sessions: dict = {}
+_lock = Lock()
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("⚙️ Settings")
 
-    # LLM provider toggle
-    provider = st.radio(
-        "LLM Provider",
-        ["gemini", "groq"],
-        index=0 if st.session_state.provider == "gemini" else 1,
-        format_func=lambda x: "Google Gemini 2.0 Flash" if x == "gemini" else "Groq Llama 3.3 70B",
-    )
-    if provider != st.session_state.provider:
-        st.session_state.provider = provider
-        st.session_state.chain = None
-        st.session_state.db = None
-        st.rerun()
+# ── helpers ───────────────────────────────────────────────────────────────────
 
-    st.divider()
+def _has_db() -> bool:
+    return os.path.isfile(os.path.join(DB_DIR, "chroma.sqlite3"))
 
-    # PDF upload
-    st.subheader("📄 Upload PDFs")
-    uploaded_files = st.file_uploader(
-        "Choose PDF files",
-        type=["pdf"],
-        accept_multiple_files=True,
-    )
-    if uploaded_files:
-        for uploaded in uploaded_files:
-            file_key = f"{uploaded.name}_{uploaded.size}"
-            if file_key in st.session_state.ingested_files:
-                continue
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(uploaded.read())
-                tmp_path = tmp.name
-            try:
-                with st.spinner(f"Ingesting {uploaded.name} …"):
-                    ingest(tmp_path)
-                st.session_state.ingested_files.add(file_key)
-                st.success(f"✅ {uploaded.name} ingested")
-            except Exception as e:
-                st.error(f"❌ {uploaded.name}: {e}")
-            finally:
-                os.unlink(tmp_path)
 
-    st.divider()
-
-    # URL / YouTube input
-    st.subheader("🔗 URL or YouTube Link")
-    url_input = st.text_input("Paste a URL or YouTube link")
-    if st.button("Ingest URL") and url_input:
-        try:
-            with st.spinner("Ingesting …"):
-                ingest(url_input)
-            st.success("✅ URL ingested")
-        except Exception as e:
-            st.error(f"❌ {e}")
-
-    st.divider()
-
-    # Load / Reload chain
-    if st.button("🔄 Load / Reload Chain"):
-        try:
-            with st.spinner("Building chain …"):
-                chain, db = build_chain(st.session_state.provider)
-            st.session_state.chain = chain
-            st.session_state.db = db
-            st.success("✅ Chain loaded")
-        except FileNotFoundError as e:
-            st.warning(str(e))
-        except Exception as e:
-            st.error(f"❌ {e}")
-
-    # Clear chat history
-    if st.button("🗑️ Clear Chat History"):
-        st.session_state.messages = []
-        if st.session_state.chain and hasattr(st.session_state.chain, "memory"):
-            st.session_state.chain.memory.clear()
-        st.rerun()
-
-# ── Main chat area ───────────────────────────────────────────────────────────
-st.title("📚 AskMyDocs")
-st.caption("Upload documents and chat with them using RAG + LangChain")
-
-# Render full chat history
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-        # Show metadata for assistant messages
-        if msg["role"] == "assistant" and "confidence" in msg:
-            confidence = msg["confidence"]
-            if confidence >= 80:
-                badge = f"🟢 Confidence: {confidence}%"
-            elif confidence >= 55:
-                badge = f"🟡 Confidence: {confidence}%"
-            else:
-                badge = f"🔴 Confidence: {confidence}%"
-            st.caption(badge)
-
-            if msg.get("sources"):
-                source_badges = []
-                for s in msg["sources"]:
-                    if s["type"] == "pdf":
-                        source_badges.append(f"📄 {s['label']} (p.{s['page']})")
-                    elif s["type"] == "youtube":
-                        source_badges.append(f"▶️ {s['label']}")
-                    elif s["type"] == "url":
-                        source_badges.append(f"🔗 {s['url']}")
-                st.caption("Sources: " + " · ".join(source_badges))
-
-# Chat input
-if prompt := st.chat_input("Ask a question about your documents …"):
-    # Show user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # Check chain is loaded
-    if st.session_state.chain is None:
-        warning_msg = "⚠️ Chain not loaded. Please ingest documents and click **Load / Reload Chain** in the sidebar."
-        st.session_state.messages.append({"role": "assistant", "content": warning_msg})
-        with st.chat_message("assistant"):
-            st.warning(warning_msg)
-    else:
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking …"):
-                result = ask(
-                    st.session_state.chain,
-                    st.session_state.db,
-                    prompt,
-                )
-
-            st.markdown(result["answer"])
-
-            confidence = result["confidence"]
-            if confidence >= 80:
-                badge = f"🟢 Confidence: {confidence}%"
-            elif confidence >= 55:
-                badge = f"🟡 Confidence: {confidence}%"
-            else:
-                badge = f"🔴 Confidence: {confidence}%"
-            st.caption(badge)
-
-            if result["sources"]:
-                source_badges = []
-                for s in result["sources"]:
-                    if s["type"] == "pdf":
-                        source_badges.append(f"📄 {s['label']} (p.{s['page']})")
-                    elif s["type"] == "youtube":
-                        source_badges.append(f"▶️ {s['label']}")
-                    elif s["type"] == "url":
-                        source_badges.append(f"🔗 {s['url']}")
-                st.caption("Sources: " + " · ".join(source_badges))
-
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": result["answer"],
-            "confidence": confidence,
-            "sources": result["sources"],
+def _get_state() -> dict:
+    sid = session.setdefault("sid", uuid4().hex)
+    with _lock:
+        return _sessions.setdefault(sid, {
+            "chain": None, "db": None, "provider": "gemini",
+            "messages": [], "sources": [],
         })
+
+
+def _chunk_count(s: dict) -> int:
+    try:
+        return s["db"]._collection.count()
+    except Exception:
+        return 0
+
+
+def _serialize(s: dict) -> dict:
+    return {
+        "ready":         s["chain"] is not None and s["db"] is not None,
+        "hasDocuments":  _has_db(),
+        "provider":      s["provider"],
+        "providerLabel": PROVIDERS.get(s["provider"], s["provider"]),
+        "chunkCount":    _chunk_count(s),
+        "messageCount":  len(s["messages"]),
+        "sources":       s["sources"],
+        "messages":      s["messages"],
+    }
+
+
+def _rebuild(s: dict) -> None:
+    """Tear down and rebuild the RAG chain. No-ops if no DB exists."""
+    s["chain"] = None
+    s["db"] = None
+    if _has_db():
+        chain, db = build_chain(s["provider"])
+        s["chain"] = chain
+        s["db"] = db
+
+
+def _err(msg: str, code: int = 400):
+    return jsonify({"ok": False, "error": msg}), code
+
+
+# ── routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/")
+def index():
+    return render_template("index.html")
+
+
+@app.get("/api/status")
+def api_status():
+    s = _get_state()
+    # Auto-load on first visit if a DB already exists
+    if _has_db() and s["chain"] is None:
+        try:
+            _rebuild(s)
+        except Exception:
+            pass
+    return jsonify(_serialize(s))
+
+
+@app.post("/api/reload")
+def api_reload():
+    s = _get_state()
+    if not _has_db():
+        return _err("No documents indexed yet. Add sources first.")
+    try:
+        _rebuild(s)
+        s["messages"] = []
+        return jsonify({"ok": True, "status": _serialize(s)})
+    except Exception as e:
+        return _err(str(e), 500)
+
+
+@app.post("/api/provider")
+def api_provider():
+    data = request.get_json(silent=True) or {}
+    prov = data.get("provider", "gemini")
+    if prov not in PROVIDERS:
+        return _err("Invalid provider.")
+    s = _get_state()
+    s["provider"] = prov
+    s["messages"] = []
+    if _has_db():
+        try:
+            _rebuild(s)
+        except Exception:
+            pass
+    return jsonify({"ok": True, "status": _serialize(s)})
+
+
+@app.post("/api/upload")
+def api_upload():
+    files = request.files.getlist("files")
+    if not files:
+        return _err("No files provided.")
+    s = _get_state()
+    ingested = []
+    for f in files:
+        name = secure_filename(f.filename or "")
+        if not name.lower().endswith(".pdf"):
+            continue
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            f.save(tmp)
+            path = tmp.name
+        try:
+            ingest(path)
+            s["sources"].append({"type": "pdf", "name": name, "url": ""})
+            ingested.append(name)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    if not ingested:
+        return _err("No valid PDF files found.")
+    s["messages"] = []
+    _rebuild(s)
+    return jsonify({"ok": True, "ingested": ingested, "status": _serialize(s)})
+
+
+@app.post("/api/ingest-url")
+def api_ingest_url():
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return _err("No URL provided.")
+    s = _get_state()
+    try:
+        ingest(url)
+    except Exception as e:
+        return _err(str(e), 500)
+    is_yt = "youtube.com" in url or "youtu.be" in url
+    s["sources"].append({
+        "type": "youtube" if is_yt else "url",
+        "name": url,
+        "url":  url,
+    })
+    s["messages"] = []
+    _rebuild(s)
+    return jsonify({"ok": True, "status": _serialize(s)})
+
+
+@app.post("/api/chat")
+def api_chat():
+    data = request.get_json(silent=True) or {}
+    q = (data.get("message") or "").strip()
+    if not q:
+        return _err("Message is empty.")
+    s = _get_state()
+    if not _has_db():
+        return _err("No documents indexed. Add sources first.")
+    if s["chain"] is None:
+        try:
+            _rebuild(s)
+        except Exception as e:
+            return _err(str(e), 500)
+    s["messages"].append({"role": "user", "content": q})
+    try:
+        result = ask(s["chain"], s["db"], q)
+    except Exception as e:
+        s["messages"].pop()
+        return _err(str(e), 500)
+    msg = {
+        "role":       "assistant",
+        "content":    result["answer"],
+        "confidence": result["confidence"],
+        "sources":    result["sources"],
+    }
+    s["messages"].append(msg)
+    return jsonify({"ok": True, "message": msg, "status": _serialize(s)})
+
+
+@app.post("/api/clear")
+def api_clear():
+    s = _get_state()
+    s["messages"] = []
+    if s["chain"]:
+        try:
+            s["chain"].memory.clear()
+        except Exception:
+            pass
+    return jsonify({"ok": True, "status": _serialize(s)})
+
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
