@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PaperBrain — Upload Sources</title>
+  <meta name="description" content="Upload PDFs, paste URLs or YouTube links. Ask questions grounded in your own documents.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%236e56cf'/><text x='16' y='22' text-anchor='middle' fill='white' font-family='monospace' font-size='17' font-weight='700'>P</text></svg>">
+</head>
+<body>
+
+<div class="upload-layout">
+
+  <!-- ── Left Sidebar ── -->
+  <aside class="upload-sidebar">
+    <div class="upload-sidebar-top">
+      <div class="logo-row">
+        <div class="logo-mark">P</div>
+        <span class="logo-text">PaperBrain</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="upload-sidebar-content">
+      <div>
+        <h1>Your documents,<br>fully searchable.</h1>
+        <p>Upload PDFs, paste URLs or YouTube links.<br>Ask questions. Get cited answers.</p>
+      </div>
+
+      <ul class="feature-list">
+        <li>
+          <span class="feature-dot"></span>
+          <span>Multi-source ingestion — PDF, web, YouTube</span>
+        </li>
+        <li>
+          <span class="feature-dot"></span>
+          <span>Confidence scoring on every answer</span>
+        </li>
+        <li>
+          <span class="feature-dot"></span>
+          <span>6 AI models — switch anytime</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="upload-sidebar-bottom">
+      <span>v2.0 · RAG</span>
+      <span>Built with LangChain · ChromaDB · OpenRouter</span>
+    </div>
+  </aside>
+
+  <!-- ── Right Main ── -->
+  <main class="upload-main">
+    <div class="upload-inner">
+
+      <!-- Drop zone -->
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0"
+           aria-label="Drop PDF files here or click to browse">
+        <input type="file" id="file-input" accept=".pdf" hidden aria-hidden="true">
+        <div class="drop-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M12 16V8M8 12l4-4 4 4" stroke="currentColor" stroke-width="1.4"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 20h16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <span class="drop-title">Drop PDF here</span>
+        <span class="drop-sub">or click to browse · max 50 MB</span>
+      </div>
+
+      <!-- Or divider -->
+      <div class="or-divider">or</div>
+
+      <!-- URL row -->
+      <div class="url-row">
+        <input
+          id="url-input"
+          type="url"
+          placeholder="https:// or youtube.com/…"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="URL or YouTube link"
+        >
+        <button id="add-url-btn" class="btn btn-primary" aria-label="Add URL">Add</button>
+      </div>
+
+      <!-- Status bar -->
+      <div id="status-bar" class="status-bar hidden" role="status" aria-live="polite">
+        <span id="status-icon"></span>
+        <span id="status-text"></span>
+      </div>
+
+      <!-- Documents section -->
+      <section id="docs-section" class="docs-section hidden" aria-label="Indexed sources">
+        <div class="docs-header">
+          <span class="label">INDEXED SOURCES</span>
+          <span id="docs-count" class="docs-count">· 0</span>
+        </div>
+        <div id="doc-list" class="doc-list" role="list"></div>
+      </section>
+
+      <!-- Bottom bar -->
+      <div class="upload-bottom-bar">
+        <span id="upload-count" class="upload-count">0 sources indexed</span>
+        <button id="open-chat-btn" class="btn btn-primary" disabled
+                title="Add at least one source to open chat"
+                aria-label="Open chat">
+          Open Chat
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" stroke-width="1.4"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<script type="module" src="js/upload.js"></script>
+</body>
+</html>
